@@ -2,6 +2,7 @@ import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import webpush from 'web-push';
 
@@ -32,13 +33,54 @@ const io = new Server(httpServer, {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static(path.join(__dirname, 'dist')));
 
-// In-Memory Registries (RAM only)
+// Persistent Push Subscriptions File Storage
+const SUBSCRIPTIONS_FILE = path.join(__dirname, 'push_subscriptions_db.json');
+
+function loadPersistentSubscriptions() {
+  try {
+    if (fs.existsSync(SUBSCRIPTIONS_FILE)) {
+      const data = fs.readFileSync(SUBSCRIPTIONS_FILE, 'utf-8');
+      const parsed = JSON.parse(data);
+      const map = new Map();
+      for (const [pin, subs] of Object.entries(parsed)) {
+        const subMap = new Map();
+        for (const [endpoint, subData] of Object.entries(subs)) {
+          subMap.set(endpoint, subData);
+        }
+        map.set(pin, subMap);
+      }
+      return map;
+    }
+  } catch (e) {
+    console.warn('[Storage] Could not load subscriptions file:', e.message);
+  }
+  return new Map();
+}
+
+function savePersistentSubscriptions() {
+  try {
+    const obj = {};
+    for (const [pin, subMap] of pushSubscriptions.entries()) {
+      obj[pin] = {};
+      for (const [endpoint, subData] of subMap.entries()) {
+        obj[pin][endpoint] = subData;
+      }
+    }
+    fs.writeFileSync(SUBSCRIPTIONS_FILE, JSON.stringify(obj, null, 2), 'utf-8');
+  } catch (e) {
+    console.warn('[Storage] Could not save subscriptions file:', e.message);
+  }
+}
+
+// In-Memory & Persistent Registries
 const registeredUsers = new Map();     // userId -> { socketId, userId, userName, pin, spaceId, online: true }
 const pinDirectory = new Map();        // pin -> Set<socketId>
 const activeSpaces = new Map();         // spaceId -> Map<socketId, user>
 const missedSpaceAlerts = new Map();   // pin/spaceId -> Array<alerts>
 const pendingPinRequests = new Map();  // pin -> Array<requests>
-const pushSubscriptions = new Map();   // pin -> Map<endpoint, subscriptionObject>
+const pushSubscriptions = loadPersistentSubscriptions();   // pin -> Map<endpoint, subscriptionObject>
+
+console.log(`[Web Push DB] Loaded subscriptions for ${pushSubscriptions.size} PINs from disk.`);
 
 // API: Get VAPID Public Key
 app.get('/api/vapid-public-key', (req, res) => {
@@ -63,7 +105,9 @@ app.post('/api/save-subscription', (req, res) => {
     updatedAt: Date.now()
   });
 
-  console.log(`[Web Push] Registered subscription for PIN: ${cleanPin} (Total: ${pushSubscriptions.get(cleanPin).size})`);
+  savePersistentSubscriptions();
+
+  console.log(`[Web Push] Registered persistent subscription for PIN: ${cleanPin} (Total: ${pushSubscriptions.get(cleanPin).size})`);
   res.json({ success: true, pin: cleanPin });
 });
 
@@ -81,15 +125,17 @@ async function sendWebPushToPin(targetPin, payload) {
   const payloadString = JSON.stringify(payload);
   const deadEndpoints = [];
 
+  console.log(`[Web Push] Dispatching push to ${subMap.size} device(s) for PIN ${cleanPin}...`);
+
   for (const [endpoint, data] of subMap.entries()) {
     try {
       await webpush.sendNotification(data.subscription, payloadString, {
         TTL: 86400,
-        urgency: payload.isCall ? 'high' : 'normal'
+        urgency: payload.isCall ? 'high' : 'high'
       });
-      console.log(`[Web Push] Successfully delivered push to PIN ${cleanPin}`);
+      console.log(`[Web Push] ✅ Successfully delivered push to device for PIN ${cleanPin}`);
     } catch (err) {
-      console.warn(`[Web Push] Push error for PIN ${cleanPin}:`, err.statusCode || err.message);
+      console.warn(`[Web Push] ⚠️ Push error for PIN ${cleanPin}:`, err.statusCode || err.message);
       if (err.statusCode === 404 || err.statusCode === 410) {
         deadEndpoints.push(endpoint);
       }
@@ -97,7 +143,10 @@ async function sendWebPushToPin(targetPin, payload) {
   }
 
   // Cleanup expired subscriptions
-  deadEndpoints.forEach(ep => subMap.delete(ep));
+  if (deadEndpoints.length > 0) {
+    deadEndpoints.forEach(ep => subMap.delete(ep));
+    savePersistentSubscriptions();
+  }
 }
 
 io.on('connection', (socket) => {
@@ -192,10 +241,8 @@ io.on('connection', (socket) => {
       timestamp: Date.now()
     };
 
-    // Emit live to online sockets
     io.to(`PIN_ROOM_${targetPin}`).emit('receive-friend-request', payload);
 
-    // Send Background Web Push to recipient's locked/closed phone!
     sendWebPushToPin(targetPin, {
       title: '💌 Friend Join Request',
       body: `${senderName} (PIN: ${payload.fromPin}) sent you a join request!`,
@@ -235,7 +282,6 @@ io.on('connection', (socket) => {
     const senderName = fromUserName || currentUserName || 'Partner';
     const destPin = (targetPin ? targetPin.toUpperCase() : currentPin);
 
-    // Live socket broadcast
     io.to(`PIN_ROOM_${destPin}`).emit('receive-partner-ping', {
       fromUserName: senderName,
       fromPin: currentPin,
@@ -250,9 +296,8 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Send Background Web Push to offline/locked phone!
     sendWebPushToPin(destPin, {
-      title: '🔔 Wakeup Alert!',
+      title: '🔔 Wakeup Alert — Vatsala',
       body: `${senderName} is calling you into your private space!`,
       isCall: false,
       tag: 'duo-ping'
@@ -266,7 +311,7 @@ io.on('connection', (socket) => {
       
       const destPin = currentSpace.replace('PIN-', '');
       sendWebPushToPin(destPin, {
-        title: '💬 Private Message',
+        title: '💬 Private Message — Vatsala',
         body: `${payload.senderName || 'Partner'} sent you an encrypted message!`,
         isCall: false,
         tag: 'duo-msg'
@@ -296,11 +341,10 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Send High Priority Web Push Call Alert to partner's lock screen!
     if (currentSpace) {
       const destPin = currentSpace.replace('PIN-', '');
       sendWebPushToPin(destPin, {
-        title: isVideo ? '📹 Incoming Video Call' : '📞 Incoming Voice Call',
+        title: isVideo ? '📹 Incoming Video Call — Vatsala' : '📞 Incoming Voice Call — Vatsala',
         body: `${callerDisplayName} is calling you right now! Tap to answer.`,
         isCall: true,
         tag: 'incoming-call'
@@ -379,5 +423,5 @@ app.get('*', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, '0.0.0.0', () => {
-  console.log(`[AntiGravity Duo] Server running on port ${PORT}`);
+  console.log(`[Vatsala] Server running on port ${PORT}`);
 });
