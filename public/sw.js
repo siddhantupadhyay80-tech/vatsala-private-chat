@@ -1,4 +1,4 @@
-// AntiGravity Duo Service Worker — Background Web Push & Lock-Screen Notifications
+// Vatsala Service Worker — Guaranteed Background Web Push & Lock-Screen Notifications
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -15,22 +15,26 @@ self.addEventListener('push', (event) => {
     data = event.data ? event.data.json() : {};
   } catch (e) {
     data = {
-      title: 'AntiGravity Duo Alert',
+      title: '🔔 Vatsala Private Alert',
       body: event.data ? event.data.text() : 'Partner is calling you into your private space!'
     };
   }
 
-  const title = data.title || '🔔 AntiGravity Duo Alert';
+  const title = data.title || '🔔 Vatsala Alert';
   const isCall = Boolean(data.isCall);
 
   const options = {
     body: data.body || 'Partner sent you a private alert!',
     icon: '/favicon.svg',
     badge: '/favicon.svg',
-    tag: data.tag || (isCall ? 'duo-call-alert' : 'duo-push-alert'),
-    vibrate: isCall ? [500, 200, 500, 200, 800, 200, 1000] : [400, 150, 400, 150, 600],
+    tag: data.tag || (isCall ? 'vatsala-call-alert' : 'vatsala-push-alert'),
+    vibrate: isCall ? [600, 200, 600, 200, 1000, 200, 1200] : [500, 150, 500, 150, 800],
     renotify: true,
     requireInteraction: true,
+    silent: false,
+    actions: [
+      { action: 'open', title: 'Enter Vatsala ❤️' }
+    ],
     data: {
       url: data.url || '/',
       timestamp: Date.now()
@@ -68,10 +72,11 @@ self.addEventListener('message', (event) => {
       body,
       icon: icon || '/favicon.svg',
       badge: '/favicon.svg',
-      tag: tag || (isCall ? 'duo-call-alert' : 'duo-alert'),
-      vibrate: isCall ? [500, 200, 500, 200, 800, 300, 1000] : [300, 100, 300, 100, 400],
+      tag: tag || (isCall ? 'vatsala-call-alert' : 'vatsala-alert'),
+      vibrate: isCall ? [600, 200, 600, 200, 1000] : [400, 150, 400],
       renotify: true,
       requireInteraction: isCall ? true : false,
+      silent: false,
       data: { url: '/' }
     });
   }
