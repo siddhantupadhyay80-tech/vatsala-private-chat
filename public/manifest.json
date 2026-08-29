@@ -1,0 +1,18 @@
+{
+  "name": "Vatsala",
+  "short_name": "Vatsala",
+  "description": "Vatsala — Encrypted 3D Private Sanctuary & Calling for Couples",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#07080c",
+  "theme_color": "#07080c",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
