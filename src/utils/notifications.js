@@ -14,6 +14,45 @@ function urlBase64ToUint8Array(base64String) {
   return outputArray;
 }
 
+function arrayBufferToBase64(buffer) {
+  if (!buffer) return '';
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+function serializePushSubscription(sub) {
+  if (!sub) return null;
+  const json = typeof sub.toJSON === 'function' ? sub.toJSON() : {};
+  
+  let p256dh = json.keys?.p256dh;
+  let auth = json.keys?.auth;
+
+  if (!p256dh && sub.getKey) {
+    try {
+      p256dh = arrayBufferToBase64(sub.getKey('p256dh'));
+    } catch (e) {}
+  }
+
+  if (!auth && sub.getKey) {
+    try {
+      auth = arrayBufferToBase64(sub.getKey('auth'));
+    } catch (e) {}
+  }
+
+  return {
+    endpoint: sub.endpoint,
+    expirationTime: sub.expirationTime || null,
+    keys: {
+      p256dh: p256dh || '',
+      auth: auth || ''
+    }
+  };
+}
+
 export class NotificationEngine {
   constructor() {
     this.audioCtx = null;
@@ -65,12 +104,12 @@ export class NotificationEngine {
         this.swRegistration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
         console.log('[Vatsala Service Worker] Active & Registered');
 
-        if (Notification.permission === 'granted') {
-          const profile = localStorage.getItem('agy_duo_my_profile');
-          if (profile) {
-            const parsed = JSON.parse(profile);
-            if (parsed.pin) {
-              this.currentPin = parsed.pin;
+        const profile = localStorage.getItem('agy_duo_my_profile');
+        if (profile) {
+          const parsed = JSON.parse(profile);
+          if (parsed.pin) {
+            this.currentPin = parsed.pin;
+            if (Notification.permission === 'granted') {
               this.subscribeToPush(parsed.pin);
             }
           }
@@ -110,6 +149,11 @@ export class NotificationEngine {
       return;
     }
 
+    if (Notification.permission !== 'granted') {
+      console.warn('Notification permission not granted yet.');
+      return;
+    }
+
     try {
       const reg = await navigator.serviceWorker.ready;
       this.swRegistration = reg;
@@ -121,8 +165,17 @@ export class NotificationEngine {
 
       const applicationServerKey = urlBase64ToUint8Array(publicKey);
 
-      // 2. Subscribe to PushManager
+      // 2. Subscribe or Refresh PushManager with Server VAPID Key
       let subscription = await reg.pushManager.getSubscription();
+      if (subscription) {
+        // Check if subscription needs refresh
+        const serialized = serializePushSubscription(subscription);
+        if (!serialized.keys.p256dh || !serialized.keys.auth) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+      }
+
       if (!subscription) {
         subscription = await reg.pushManager.subscribe({
           userVisibleOnly: true,
@@ -130,19 +183,25 @@ export class NotificationEngine {
         });
       }
 
-      // 3. Save PushSubscription on persistent server DB
-      await fetch('/api/save-subscription', {
+      // 3. Properly serialize subscription object
+      const subscriptionPayload = serializePushSubscription(subscription);
+
+      // 4. Save PushSubscription on persistent server DB
+      const saveRes = await fetch('/api/save-subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           pin: this.currentPin,
           userId: `user_${Math.random().toString(36).substring(2, 8)}`,
-          subscription
+          subscription: subscriptionPayload
         })
       });
 
-      this.isPushSubscribed = true;
-      console.log(`[Vatsala Web Push] Subscribed to push service for PIN ${this.currentPin}`);
+      const saveJson = await saveRes.json();
+      if (saveJson.success) {
+        this.isPushSubscribed = true;
+        console.log(`[Vatsala Web Push] ✅ Guaranteed push registered for PIN: ${this.currentPin}`);
+      }
     } catch (err) {
       console.warn('Push subscription failed:', err);
     }
