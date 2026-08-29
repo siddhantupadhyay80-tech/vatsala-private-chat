@@ -1,5 +1,5 @@
 /**
- * AntiGravity Duo — Notification & Web Push Engine
+ * Vatsala — High Reliability Notification & Web Push Engine
  * Web Push API, Background Push, Ringtone & Haptic Audio Synthesis
  */
 
@@ -25,6 +25,7 @@ export class NotificationEngine {
     this.initAudioContext();
     this.setupAutoUnlock();
     this.initServiceWorker();
+    this.setupVisibilitySync();
   }
 
   initAudioContext() {
@@ -50,18 +51,28 @@ export class NotificationEngine {
     window.addEventListener('touchstart', unlock, { once: true });
   }
 
+  setupVisibilitySync() {
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.currentPin) {
+        this.subscribeToPush(this.currentPin);
+      }
+    });
+  }
+
   async initServiceWorker() {
     if ('serviceWorker' in navigator) {
       try {
         this.swRegistration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-        console.log('[Service Worker] Active & Registered');
+        console.log('[Vatsala Service Worker] Active & Registered');
 
-        // Check if permission is already granted
         if (Notification.permission === 'granted') {
           const profile = localStorage.getItem('agy_duo_my_profile');
           if (profile) {
             const parsed = JSON.parse(profile);
-            if (parsed.pin) this.subscribeToPush(parsed.pin);
+            if (parsed.pin) {
+              this.currentPin = parsed.pin;
+              this.subscribeToPush(parsed.pin);
+            }
           }
         }
       } catch (err) {
@@ -77,9 +88,10 @@ export class NotificationEngine {
         if (perm === 'granted') {
           this.playPingRing();
           if (userPin) {
+            this.currentPin = userPin;
             await this.subscribeToPush(userPin);
           }
-          this.showToast('🔔 Notifications Active', 'Aapko har message, call aur alert ka notification milega!', 'check');
+          this.showToast('🔔 Notifications Active', 'Aapko har call, message aur alert ka guaranteed notification milega!', 'check');
           return true;
         }
       } catch (e) {
@@ -118,7 +130,7 @@ export class NotificationEngine {
         });
       }
 
-      // 3. Save PushSubscription on server
+      // 3. Save PushSubscription on persistent server DB
       await fetch('/api/save-subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -130,7 +142,7 @@ export class NotificationEngine {
       });
 
       this.isPushSubscribed = true;
-      console.log(`[Web Push] Successfully subscribed to Push server for PIN ${this.currentPin}`);
+      console.log(`[Vatsala Web Push] Subscribed to push service for PIN ${this.currentPin}`);
     } catch (err) {
       console.warn('Push subscription failed:', err);
     }
@@ -203,11 +215,11 @@ export class NotificationEngine {
   startIncomingCallRingtone() {
     this.stopIncomingCallRingtone();
     this.playPingRing();
-    this.vibrate([400, 200, 400, 200, 600]);
+    this.vibrate([500, 200, 500, 200, 800]);
 
     this.callRingtoneInterval = setInterval(() => {
       this.playPingRing();
-      this.vibrate([400, 200, 400, 200, 600]);
+      this.vibrate([500, 200, 500, 200, 800]);
     }, 2500);
   }
 
@@ -218,7 +230,7 @@ export class NotificationEngine {
     }
   }
 
-  vibrate(pattern = [300, 100, 300, 100, 400]) {
+  vibrate(pattern = [400, 150, 400, 150, 600]) {
     if ('vibrate' in navigator) {
       try {
         navigator.vibrate(pattern);
@@ -228,18 +240,18 @@ export class NotificationEngine {
 
   showToast(title, message, icon = 'bell', onClick = null) {
     this.playChimeTone();
-    this.vibrate([300, 100, 300]);
+    this.vibrate([400, 150, 400]);
 
-    // Service Worker Notification
     if (this.swRegistration && 'Notification' in window && Notification.permission === 'granted') {
       try {
         this.swRegistration.showNotification(title, {
           body: message,
           icon: '/favicon.svg',
           badge: '/favicon.svg',
-          tag: 'duo-toast',
-          vibrate: [300, 100, 300, 100, 400],
+          tag: 'vatsala-toast',
+          vibrate: [400, 150, 400, 150, 600],
           renotify: true,
+          requireInteraction: false,
           data: { url: '/' }
         });
       } catch (e) {
@@ -249,7 +261,6 @@ export class NotificationEngine {
       }
     }
 
-    // High Contrast Floating Toast
     const existing = document.querySelectorAll('.inapp-toast-alert');
     existing.forEach(t => t.remove());
 
