@@ -319,6 +319,30 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 5.1 Delete Message Relay (WhatsApp Delete for Everyone)
+  socket.on('delete-message', ({ messageId, spaceId, forEveryone }) => {
+    const targetSpace = spaceId || currentSpace;
+    if (targetSpace) {
+      socket.to(targetSpace).emit('message-deleted', {
+        messageId,
+        forEveryone,
+        deletedBy: currentUserId,
+        timestamp: Date.now()
+      });
+    }
+  });
+
+  // 5.2 Clear Chat Relay
+  socket.on('clear-chat', ({ spaceId }) => {
+    const targetSpace = spaceId || currentSpace;
+    if (targetSpace) {
+      socket.to(targetSpace).emit('chat-cleared', {
+        clearedBy: currentUserId,
+        timestamp: Date.now()
+      });
+    }
+  });
+
   // 6. WebRTC Calls with Web Push
   socket.on('call-offer', ({ targetSocketId, offer, isVideo, callerName }) => {
     const callerDisplayName = callerName || currentUserName || 'Partner';
