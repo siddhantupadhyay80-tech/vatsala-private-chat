@@ -15,7 +15,8 @@ export class ChatView {
 
     this.container = document.getElementById('chat-component-mount');
     this.disappearingTimer = '0';
-    this.renderedMessageIds = new Set(); // Prevent duplicate rendering!
+    this.renderedMessageIds = new Set();
+    this.activeMenuMessageId = null;
 
     // Voice recording state
     this.mediaRecorder = null;
@@ -28,6 +29,7 @@ export class ChatView {
 
     this.cleanupSocketListeners();
     this.render();
+    this.loadChatHistory();
     this.initSocketListeners();
   }
 
@@ -35,6 +37,8 @@ export class ChatView {
     if (this.socket) {
       this.socket.off('receive-encrypted-message');
       this.socket.off('partner-typing');
+      this.socket.off('message-deleted');
+      this.socket.off('chat-cleared');
     }
   }
 
@@ -51,15 +55,15 @@ export class ChatView {
 
     this.container.innerHTML = `
       <div class="chat-container glass-card">
-        <!-- WhatsApp-Style Top Header with Back Button -->
+        <!-- WhatsApp-Style Top Header -->
         <div class="chat-header-bar">
           <div style="display: flex; align-items: center; gap: 8px;">
-            <!-- Back to Homepage Button -->
+            <!-- Back Button -->
             <button id="btn-back-home" class="btn-chat-back" title="Back to Homepage">
               <i data-lucide="arrow-left"></i>
             </button>
 
-            <!-- Partner Info -->
+            <!-- Partner Avatar & Status -->
             <div class="chat-partner-head">
               <div class="chat-partner-avatar">
                 ${(this.partner.userName || 'P').charAt(0).toUpperCase()}
@@ -74,7 +78,7 @@ export class ChatView {
             </div>
           </div>
 
-          <!-- Top Call & Heart Actions -->
+          <!-- Top Actions -->
           <div style="display: flex; align-items: center; gap: 6px;">
             <button id="btn-chat-voice-call" class="btn-icon-action btn-call" title="Voice Call">
               <i data-lucide="phone"></i>
@@ -85,26 +89,26 @@ export class ChatView {
             <button id="btn-chat-ping" class="btn-icon-action" title="Wakeup Ring">
               <i data-lucide="bell" style="color: var(--accent-cyan);"></i>
             </button>
-            
-            <!-- Disappearing Timer Selector -->
-            <div class="disappearing-timer-selector">
-              <i data-lucide="timer" style="width: 12px; height: 12px; color: var(--accent-amber);"></i>
-              <select id="select-disappearing-timer" class="timer-select">
-                <option value="0">Off</option>
-                <option value="30">30s</option>
-                <option value="300">5m</option>
-                <option value="3600">1h</option>
-                <option value="86400">24h</option>
-              </select>
+
+            <!-- Chat Options 3-Dot Menu -->
+            <div class="chat-header-dropdown-wrap" style="position: relative;">
+              <button id="btn-chat-options" class="btn-icon-action" title="Chat Options">
+                <i data-lucide="more-vertical"></i>
+              </button>
+              <div id="chat-options-menu" class="chat-options-dropdown hidden glass-card">
+                <button id="btn-opt-clear-chat" class="chat-dropdown-item text-danger">
+                  <i data-lucide="trash-2" style="width: 14px; height: 14px;"></i> Clear All Chat
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Messages Feed (Scrollable) -->
+        <!-- Messages Feed (Scrollable WhatsApp Style) -->
         <div class="chat-messages-feed" id="chat-messages-feed">
           <div class="system-notice">
-            <i data-lucide="shield-check" style="width: 13px; height: 13px; color: var(--accent-cyan);"></i>
-            <span>Pure 256-bit Hardware Encrypted. Messages & media are encrypted locally.</span>
+            <i data-lucide="lock" style="width: 13px; height: 13px; color: var(--accent-cyan);"></i>
+            <span>Messages are end-to-end encrypted. Tap any message to Resend, Copy, or Delete.</span>
           </div>
         </div>
 
@@ -115,7 +119,7 @@ export class ChatView {
 
         <!-- WhatsApp-Style Chat Input Bar -->
         <div class="chat-input-bar">
-          <!-- Attachment Button (Photo/Video Transfer) -->
+          <!-- Attachment Button -->
           <label for="chat-file-input" class="btn-input-action" title="Send Photo or Video">
             <i data-lucide="paperclip"></i>
           </label>
@@ -149,22 +153,72 @@ export class ChatView {
     this.attachEvents();
   }
 
+  async loadChatHistory() {
+    const spaceId = this.session.spaceId;
+    const history = ephemeralStorage.getChatHistory(spaceId);
+
+    for (const item of history) {
+      if (item.type === 'text') {
+        this.appendMessage(item, item.text || '', item.senderId === this.session.userId, false);
+      } else if (item.type === 'voice') {
+        this.appendVoiceMessage(item, item.mediaBase64 || '', item.senderId === this.session.userId, false);
+      } else if (item.type === 'image' || item.type === 'video') {
+        this.appendMediaMessage(item, item.mediaBase64 || '', item.senderId === this.session.userId, false);
+      }
+    }
+  }
+
   attachEvents() {
     const textInput = document.getElementById('chat-text-input');
     const btnSend = document.getElementById('btn-chat-send');
     const btnVoice = document.getElementById('btn-voice-record');
     const btnHeart = document.getElementById('btn-chat-send-heart');
-    const timerSelect = document.getElementById('select-disappearing-timer');
     const fileInput = document.getElementById('chat-file-input');
     const btnBack = document.getElementById('btn-back-home');
     const btnVoiceCall = document.getElementById('btn-chat-voice-call');
     const btnVideoCall = document.getElementById('btn-chat-video-call');
     const btnPing = document.getElementById('btn-chat-ping');
+    const btnOptions = document.getElementById('btn-chat-options');
+    const optionsMenu = document.getElementById('chat-options-menu');
+    const btnClearChat = document.getElementById('btn-opt-clear-chat');
 
     if (btnBack) {
       btnBack.addEventListener('click', () => {
         this.cleanupSocketListeners();
         if (this.onBackToHome) this.onBackToHome();
+      });
+    }
+
+    if (btnOptions && optionsMenu) {
+      btnOptions.addEventListener('click', (e) => {
+        e.stopPropagation();
+        optionsMenu.classList.toggle('hidden');
+      });
+      document.addEventListener('click', () => {
+        optionsMenu.classList.add('hidden');
+        this.closeAllMessageMenus();
+      });
+    }
+
+    if (btnClearChat) {
+      btnClearChat.addEventListener('click', () => {
+        if (confirm('Are you sure you want to clear all chat messages?')) {
+          ephemeralStorage.clearChatHistory(this.session.spaceId);
+          const feed = document.getElementById('chat-messages-feed');
+          if (feed) {
+            feed.innerHTML = `
+              <div class="system-notice">
+                <i data-lucide="lock" style="width: 13px; height: 13px; color: var(--accent-cyan);"></i>
+                <span>Chat cleared. Messages are end-to-end encrypted.</span>
+              </div>
+            `;
+            renderIcons();
+          }
+          this.renderedMessageIds.clear();
+          if (this.socket) {
+            this.socket.emit('clear-chat', { spaceId: this.session.spaceId });
+          }
+        }
       });
     }
 
@@ -187,12 +241,6 @@ export class ChatView {
         if (this.socket) {
           this.socket.emit('send-partner-ping', { fromUserName: this.session.userName });
         }
-      });
-    }
-
-    if (timerSelect) {
-      timerSelect.addEventListener('change', (e) => {
-        this.disappearingTimer = e.target.value;
       });
     }
 
@@ -318,13 +366,15 @@ export class ChatView {
     }
   }
 
-  async handleSendMessage() {
-    const input = document.getElementById('chat-text-input');
-    if (!input) return;
-    const text = input.value.trim();
-    if (!text) return;
-
-    input.value = '';
+  async handleSendMessage(resendText = null) {
+    let text = resendText;
+    if (!text) {
+      const input = document.getElementById('chat-text-input');
+      if (!input) return;
+      text = input.value.trim();
+      if (!text) return;
+      input.value = '';
+    }
 
     try {
       const encrypted = await cryptoEngine.encryptText(text);
@@ -332,15 +382,18 @@ export class ChatView {
       const messagePayload = {
         id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: 'text',
+        text,
         encryptedPayload: encrypted,
         senderId: this.session.userId,
         senderName: this.session.userName,
-        disappearingTimer: parseInt(this.disappearingTimer, 10),
         timestamp: Date.now()
       };
 
-      // Append locally once
-      this.appendMessage(messagePayload, text, true);
+      // Save to persistent storage
+      ephemeralStorage.saveChatMessage(this.session.spaceId, messagePayload);
+
+      // Append locally
+      this.appendMessage(messagePayload, text, true, true);
 
       ephemeralStorage.saveFriend({
         userCode: this.partner.userCode || this.session.spaceId,
@@ -359,7 +412,16 @@ export class ChatView {
   async handleSendEncryptedMedia(file, isViewOnce = false, caption = '') {
     try {
       const encrypted = await cryptoEngine.encryptBinary(file);
-      const localUrl = ephemeralStorage.createManagedBlobUrl(file);
+
+      // Convert file to base64 for persistent storage if not view-once
+      let mediaBase64 = null;
+      if (!isViewOnce) {
+        mediaBase64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(file);
+        });
+      }
 
       const mediaPayload = {
         id: `media_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -368,15 +430,18 @@ export class ChatView {
         caption,
         title: file.name,
         encryptedPayload: encrypted,
-        localBlobUrl: localUrl,
+        mediaBase64,
         senderId: this.session.userId,
         senderName: this.session.userName,
-        disappearingTimer: parseInt(this.disappearingTimer, 10),
         timestamp: Date.now(),
         viewed: false
       };
 
-      this.appendMediaMessage(mediaPayload, localUrl, true);
+      if (!isViewOnce) {
+        ephemeralStorage.saveChatMessage(this.session.spaceId, mediaPayload);
+      }
+
+      this.appendMediaMessage(mediaPayload, mediaBase64, true, true);
 
       ephemeralStorage.saveFriend({
         userCode: this.partner.userCode || this.session.spaceId,
@@ -394,7 +459,6 @@ export class ChatView {
           encryptedPayload: encrypted,
           senderId: mediaPayload.senderId,
           senderName: mediaPayload.senderName,
-          disappearingTimer: mediaPayload.disappearingTimer,
           timestamp: mediaPayload.timestamp
         });
       }
@@ -443,19 +507,26 @@ export class ChatView {
   async sendEncryptedVoiceNote(audioBlob) {
     try {
       const encrypted = await cryptoEngine.encryptBinary(audioBlob);
-      const managedUrl = ephemeralStorage.createManagedBlobUrl(audioBlob);
+
+      const audioBase64 = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(audioBlob);
+      });
 
       const messagePayload = {
         id: `voice_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
         type: 'voice',
         encryptedPayload: encrypted,
+        mediaBase64: audioBase64,
         senderId: this.session.userId,
         senderName: this.session.userName,
-        disappearingTimer: parseInt(this.disappearingTimer, 10),
         timestamp: Date.now()
       };
 
-      this.appendVoiceMessage(messagePayload, managedUrl, true);
+      ephemeralStorage.saveChatMessage(this.session.spaceId, messagePayload);
+
+      this.appendVoiceMessage(messagePayload, audioBase64, true, true);
 
       if (this.socket) {
         this.socket.emit('send-encrypted-message', messagePayload);
@@ -469,7 +540,6 @@ export class ChatView {
     if (!this.socket) return;
 
     this.socket.on('receive-encrypted-message', async (payload) => {
-      // Deduplicate: ignore if already rendered!
       if (this.renderedMessageIds.has(payload.id)) return;
 
       try {
@@ -477,23 +547,70 @@ export class ChatView {
 
         if (payload.type === 'text') {
           const plainText = await cryptoEngine.decryptText(payload.encryptedPayload);
-          this.appendMessage(payload, plainText, false);
+          payload.text = plainText;
+          ephemeralStorage.saveChatMessage(this.session.spaceId, payload);
+          this.appendMessage(payload, plainText, false, true);
         } else if (payload.type === 'voice') {
           const decryptedBlob = await cryptoEngine.decryptBinary(payload.encryptedPayload);
-          const managedUrl = ephemeralStorage.createManagedBlobUrl(decryptedBlob);
-          this.appendVoiceMessage(payload, managedUrl, false);
+          const audioBase64 = await new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.readAsDataURL(decryptedBlob);
+          });
+          payload.mediaBase64 = audioBase64;
+          ephemeralStorage.saveChatMessage(this.session.spaceId, payload);
+          this.appendVoiceMessage(payload, audioBase64, false, true);
         } else if (payload.type === 'image' || payload.type === 'video') {
           if (!payload.isViewOnce) {
             const decryptedBlob = await cryptoEngine.decryptBinary(payload.encryptedPayload);
-            const managedUrl = ephemeralStorage.createManagedBlobUrl(decryptedBlob);
-            this.appendMediaMessage(payload, managedUrl, false);
+            const mediaBase64 = await new Promise((resolve) => {
+              const reader = new FileReader();
+              reader.onloadend = () => resolve(reader.result);
+              reader.readAsDataURL(decryptedBlob);
+            });
+            payload.mediaBase64 = mediaBase64;
+            ephemeralStorage.saveChatMessage(this.session.spaceId, payload);
+            this.appendMediaMessage(payload, mediaBase64, false, true);
           } else {
-            this.appendMediaMessage(payload, null, false);
+            this.appendMediaMessage(payload, null, false, true);
           }
         }
       } catch (err) {
         console.error('Failed to decrypt incoming payload:', err);
       }
+    });
+
+    this.socket.on('message-deleted', ({ messageId, forEveryone }) => {
+      if (forEveryone) {
+        ephemeralStorage.deleteChatMessage(this.session.spaceId, messageId, true);
+        const row = document.getElementById(messageId);
+        if (row) {
+          const bubble = row.querySelector('.message-bubble');
+          if (bubble) {
+            bubble.innerHTML = `
+              <div style="color: var(--text-muted); font-style: italic; font-size: 0.80rem; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="ban" style="width: 13px; height: 13px;"></i> This message was deleted
+              </div>
+            `;
+            renderIcons();
+          }
+        }
+      }
+    });
+
+    this.socket.on('chat-cleared', () => {
+      ephemeralStorage.clearChatHistory(this.session.spaceId);
+      const feed = document.getElementById('chat-messages-feed');
+      if (feed) {
+        feed.innerHTML = `
+          <div class="system-notice">
+            <i data-lucide="lock" style="width: 13px; height: 13px; color: var(--accent-cyan);"></i>
+            <span>Partner cleared the chat history.</span>
+          </div>
+        `;
+        renderIcons();
+      }
+      this.renderedMessageIds.clear();
     });
 
     let typingTimeout = null;
@@ -509,7 +626,7 @@ export class ChatView {
     });
   }
 
-  appendMessage(payload, text, isSelf) {
+  appendMessage(payload, text, isSelf, shouldScroll = true) {
     if (this.renderedMessageIds.has(payload.id)) return;
     this.renderedMessageIds.add(payload.id);
 
@@ -521,40 +638,60 @@ export class ChatView {
     row.id = payload.id;
 
     const timeStr = new Date(payload.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    let disappearingBadge = '';
-    if (payload.disappearingTimer > 0) {
-      disappearingBadge = `<span class="disappearing-tag"><i data-lucide="timer" style="width: 10px; height: 10px;"></i> ${payload.disappearingTimer}s</span>`;
-    }
+    const isDeleted = Boolean(payload.deletedForEveryone);
 
     row.innerHTML = `
       <div class="message-author-tag">${isSelf ? 'You' : payload.senderName}</div>
-      <div class="message-bubble">
-        ${this.escapeHtml(text)}
-        <div class="message-meta">
-          ${disappearingBadge}
-          <span>${timeStr}</span>
-          ${isSelf ? '<i data-lucide="check-check" style="width: 11px; height: 11px; color: var(--accent-cyan);"></i>' : ''}
+      <div class="message-bubble-wrapper">
+        <div class="message-bubble ${isDeleted ? 'message-deleted-bubble' : ''}">
+          ${isDeleted ? `
+            <div style="color: var(--text-muted); font-style: italic; font-size: 0.80rem; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="ban" style="width: 13px; height: 13px;"></i> This message was deleted
+            </div>
+          ` : `
+            <div class="message-text-content">${this.escapeHtml(text)}</div>
+          `}
+          <div class="message-meta">
+            <span>${timeStr}</span>
+            ${isSelf ? '<i data-lucide="check-check" style="width: 11px; height: 11px; color: var(--accent-cyan);"></i>' : ''}
+          </div>
         </div>
+
+        ${!isDeleted ? `
+          <!-- WhatsApp-Style Message Actions Trigger -->
+          <button class="btn-msg-action-trigger" data-id="${payload.id}" title="Message options">
+            <i data-lucide="chevron-down" style="width: 12px; height: 12px;"></i>
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- Action Context Popover -->
+      <div class="msg-context-menu hidden glass-card" id="menu-${payload.id}">
+        <button class="msg-menu-item btn-msg-copy" data-text="${this.escapeHtml(text)}">
+          <i data-lucide="copy" style="width: 13px; height: 13px;"></i> Copy
+        </button>
+        <button class="msg-menu-item btn-msg-resend" data-text="${this.escapeHtml(text)}">
+          <i data-lucide="rotate-cw" style="width: 13px; height: 13px;"></i> Resend
+        </button>
+        <button class="msg-menu-item btn-msg-del-me" data-id="${payload.id}">
+          <i data-lucide="trash" style="width: 13px; height: 13px;"></i> Delete for me
+        </button>
+        ${isSelf ? `
+          <button class="msg-menu-item text-danger btn-msg-del-all" data-id="${payload.id}">
+            <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Delete for everyone
+          </button>
+        ` : ''}
       </div>
     `;
 
     feed.appendChild(row);
-    feed.scrollTop = feed.scrollHeight;
+    if (shouldScroll) feed.scrollTop = feed.scrollHeight;
 
     renderIcons();
-
-    if (payload.disappearingTimer > 0) {
-      setTimeout(() => {
-        row.style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-        row.style.opacity = '0';
-        row.style.transform = 'scale(0.9)';
-        setTimeout(() => row.remove(), 500);
-      }, payload.disappearingTimer * 1000);
-    }
+    this.attachMessageActionEvents(row, payload);
   }
 
-  appendMediaMessage(payload, mediaUrl, isSelf) {
+  appendMediaMessage(payload, mediaUrl, isSelf, shouldScroll = true) {
     if (this.renderedMessageIds.has(payload.id)) return;
     this.renderedMessageIds.add(payload.id);
 
@@ -566,9 +703,16 @@ export class ChatView {
     row.id = payload.id;
 
     const timeStr = new Date(payload.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const isDeleted = Boolean(payload.deletedForEveryone);
 
     let mediaContent = '';
-    if (payload.isViewOnce && !mediaUrl) {
+    if (isDeleted) {
+      mediaContent = `
+        <div style="color: var(--text-muted); font-style: italic; font-size: 0.80rem; display: flex; align-items: center; gap: 6px;">
+          <i data-lucide="ban" style="width: 13px; height: 13px;"></i> This media was deleted
+        </div>
+      `;
+    } else if (payload.isViewOnce && !mediaUrl) {
       mediaContent = `
         <div class="whatsapp-view-once-card" id="btn-open-${payload.id}">
           <div class="view-once-icon-ring">
@@ -600,18 +744,38 @@ export class ChatView {
 
     row.innerHTML = `
       <div class="message-author-tag">${isSelf ? 'You' : payload.senderName}</div>
-      <div class="message-bubble whatsapp-bubble">
-        ${mediaContent}
-        <div class="message-meta">
-          ${payload.isViewOnce ? '<span style="color: var(--accent-amber); font-size: 0.65rem; margin-right: 2px;">① View Once</span>' : ''}
-          <span>${timeStr}</span>
-          ${isSelf ? '<i data-lucide="check-check" style="width: 11px; height: 11px; color: var(--accent-cyan);"></i>' : ''}
+      <div class="message-bubble-wrapper">
+        <div class="message-bubble whatsapp-bubble ${isDeleted ? 'message-deleted-bubble' : ''}">
+          ${mediaContent}
+          <div class="message-meta">
+            ${payload.isViewOnce ? '<span style="color: var(--accent-amber); font-size: 0.65rem; margin-right: 2px;">① View Once</span>' : ''}
+            <span>${timeStr}</span>
+            ${isSelf ? '<i data-lucide="check-check" style="width: 11px; height: 11px; color: var(--accent-cyan);"></i>' : ''}
+          </div>
         </div>
+
+        ${!isDeleted ? `
+          <button class="btn-msg-action-trigger" data-id="${payload.id}" title="Options">
+            <i data-lucide="chevron-down" style="width: 12px; height: 12px;"></i>
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- Action Context Popover -->
+      <div class="msg-context-menu hidden glass-card" id="menu-${payload.id}">
+        <button class="msg-menu-item btn-msg-del-me" data-id="${payload.id}">
+          <i data-lucide="trash" style="width: 13px; height: 13px;"></i> Delete for me
+        </button>
+        ${isSelf ? `
+          <button class="msg-menu-item text-danger btn-msg-del-all" data-id="${payload.id}">
+            <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Delete for everyone
+          </button>
+        ` : ''}
       </div>
     `;
 
     feed.appendChild(row);
-    feed.scrollTop = feed.scrollHeight;
+    if (shouldScroll) feed.scrollTop = feed.scrollHeight;
 
     renderIcons();
 
@@ -634,9 +798,11 @@ export class ChatView {
         this.openFullScreenViewer(payload, mediaUrl, row);
       });
     }
+
+    this.attachMessageActionEvents(row, payload);
   }
 
-  appendVoiceMessage(payload, audioUrl, isSelf) {
+  appendVoiceMessage(payload, audioUrl, isSelf, shouldScroll = true) {
     if (this.renderedMessageIds.has(payload.id)) return;
     this.renderedMessageIds.add(payload.id);
 
@@ -648,28 +814,55 @@ export class ChatView {
     row.id = payload.id;
 
     const timeStr = new Date(payload.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const isDeleted = Boolean(payload.deletedForEveryone);
 
     row.innerHTML = `
       <div class="message-author-tag">${isSelf ? 'You' : payload.senderName}</div>
-      <div class="message-bubble">
-        <div class="voice-bubble">
-          <button class="voice-play-btn" id="btn-play-${payload.id}">
-            <i data-lucide="play" style="width: 15px; height: 15px;"></i>
-          </button>
-          <div style="flex:1; font-size:0.78rem; color: #fff;">
-            🎵 Voice Note
+      <div class="message-bubble-wrapper">
+        <div class="message-bubble ${isDeleted ? 'message-deleted-bubble' : ''}">
+          ${isDeleted ? `
+            <div style="color: var(--text-muted); font-style: italic; font-size: 0.80rem; display: flex; align-items: center; gap: 6px;">
+              <i data-lucide="ban" style="width: 13px; height: 13px;"></i> This audio was deleted
+            </div>
+          ` : `
+            <div class="voice-bubble">
+              <button class="voice-play-btn" id="btn-play-${payload.id}">
+                <i data-lucide="play" style="width: 15px; height: 15px;"></i>
+              </button>
+              <div style="flex:1; font-size:0.78rem; color: #fff;">
+                🎵 Voice Note
+              </div>
+              <audio id="audio-${payload.id}" src="${audioUrl}"></audio>
+            </div>
+          `}
+          <div class="message-meta">
+            <span>${timeStr}</span>
+            ${isSelf ? '<i data-lucide="check-check" style="width: 11px; height: 11px; color: var(--accent-cyan);"></i>' : ''}
           </div>
-          <audio id="audio-${payload.id}" src="${audioUrl}"></audio>
         </div>
-        <div class="message-meta">
-          <span>${timeStr}</span>
-          ${isSelf ? '<i data-lucide="check-check" style="width: 11px; height: 11px; color: var(--accent-cyan);"></i>' : ''}
-        </div>
+
+        ${!isDeleted ? `
+          <button class="btn-msg-action-trigger" data-id="${payload.id}" title="Options">
+            <i data-lucide="chevron-down" style="width: 12px; height: 12px;"></i>
+          </button>
+        ` : ''}
+      </div>
+
+      <!-- Action Context Popover -->
+      <div class="msg-context-menu hidden glass-card" id="menu-${payload.id}">
+        <button class="msg-menu-item btn-msg-del-me" data-id="${payload.id}">
+          <i data-lucide="trash" style="width: 13px; height: 13px;"></i> Delete for me
+        </button>
+        ${isSelf ? `
+          <button class="msg-menu-item text-danger btn-msg-del-all" data-id="${payload.id}">
+            <i data-lucide="trash-2" style="width: 13px; height: 13px;"></i> Delete for everyone
+          </button>
+        ` : ''}
       </div>
     `;
 
     feed.appendChild(row);
-    feed.scrollTop = feed.scrollHeight;
+    if (shouldScroll) feed.scrollTop = feed.scrollHeight;
 
     renderIcons();
 
@@ -693,6 +886,95 @@ export class ChatView {
         renderIcons();
       });
     }
+
+    this.attachMessageActionEvents(row, payload);
+  }
+
+  attachMessageActionEvents(row, payload) {
+    const trigger = row.querySelector('.btn-msg-action-trigger');
+    const menu = row.querySelector(`#menu-${payload.id}`);
+
+    if (trigger && menu) {
+      trigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeAllMessageMenus(payload.id);
+        menu.classList.toggle('hidden');
+      });
+    }
+
+    // Copy action
+    const btnCopy = row.querySelector('.btn-msg-copy');
+    if (btnCopy) {
+      btnCopy.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const textToCopy = btnCopy.getAttribute('data-text');
+        navigator.clipboard.writeText(textToCopy);
+        notificationEngine.showToast('Copied', 'Message copied to clipboard!', 'check');
+        menu.classList.add('hidden');
+      });
+    }
+
+    // Resend action
+    const btnResend = row.querySelector('.btn-msg-resend');
+    if (btnResend) {
+      btnResend.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const textToResend = btnResend.getAttribute('data-text');
+        menu.classList.add('hidden');
+        this.handleSendMessage(textToResend);
+        notificationEngine.showToast('Resent', 'Message resent to partner!', 'send');
+      });
+    }
+
+    // Delete for me
+    const btnDelMe = row.querySelector('.btn-msg-del-me');
+    if (btnDelMe) {
+      btnDelMe.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ephemeralStorage.deleteChatMessage(this.session.spaceId, payload.id, false);
+        row.remove();
+        this.renderedMessageIds.delete(payload.id);
+      });
+    }
+
+    // Delete for everyone
+    const btnDelAll = row.querySelector('.btn-msg-del-all');
+    if (btnDelAll) {
+      btnDelAll.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (confirm('Delete this message for everyone?')) {
+          ephemeralStorage.deleteChatMessage(this.session.spaceId, payload.id, true);
+          const bubble = row.querySelector('.message-bubble');
+          if (bubble) {
+            bubble.className = 'message-bubble message-deleted-bubble';
+            bubble.innerHTML = `
+              <div style="color: var(--text-muted); font-style: italic; font-size: 0.80rem; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="ban" style="width: 13px; height: 13px;"></i> You deleted this message
+              </div>
+            `;
+            renderIcons();
+          }
+          if (trigger) trigger.remove();
+          if (menu) menu.remove();
+
+          if (this.socket) {
+            this.socket.emit('delete-message', {
+              messageId: payload.id,
+              spaceId: this.session.spaceId,
+              forEveryone: true
+            });
+          }
+        }
+      });
+    }
+  }
+
+  closeAllMessageMenus(exceptId = null) {
+    document.querySelectorAll('.msg-context-menu').forEach(m => {
+      if (!exceptId || m.id !== `menu-${exceptId}`) {
+        m.classList.add('hidden');
+      }
+    });
   }
 
   openFullScreenViewer(item, activeUrl, rowElement) {
@@ -767,6 +1049,7 @@ export class ChatView {
   }
 
   escapeHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 }
