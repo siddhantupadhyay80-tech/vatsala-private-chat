@@ -1248,3 +1248,141 @@ html, body {
   from { opacity: 1; transform: translate(-50%, 0); }
   to { opacity: 0; transform: translate(-50%, -20px); }
 }
+
+/* ==========================================================================
+   WhatsApp / Insta Style Message Actions & Context Menu
+   ========================================================================== */
+.message-bubble-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.message-bubble-row.sent .message-bubble-wrapper {
+  flex-direction: row;
+}
+
+.message-bubble-row.received .message-bubble-wrapper {
+  flex-direction: row-reverse;
+}
+
+.btn-msg-action-trigger {
+  opacity: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.message-bubble-row:hover .btn-msg-action-trigger,
+.message-bubble-row:active .btn-msg-action-trigger,
+.message-bubble-row:focus-within .btn-msg-action-trigger {
+  opacity: 1;
+}
+
+.msg-context-menu {
+  position: absolute;
+  top: 100%;
+  z-index: 1000;
+  background: rgba(14, 18, 28, 0.98);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.85);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 155px;
+  animation: fadeInDown 0.15s ease-out;
+}
+
+.message-bubble-row.sent .msg-context-menu {
+  right: 0;
+}
+
+.message-bubble-row.received .msg-context-menu {
+  left: 0;
+}
+
+.msg-menu-item {
+  background: transparent;
+  border: none;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: background var(--transition-fast);
+}
+
+.msg-menu-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.msg-menu-item.text-danger {
+  color: var(--accent-red);
+}
+
+.msg-menu-item.text-danger:hover {
+  background: rgba(239, 71, 111, 0.15);
+}
+
+.message-deleted-bubble {
+  background: rgba(30, 35, 48, 0.6) !important;
+  border: 1px dashed rgba(255, 255, 255, 0.12) !important;
+  color: var(--text-muted) !important;
+}
+
+.chat-options-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+  background: rgba(14, 18, 28, 0.98);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.85);
+  padding: 4px;
+  min-width: 160px;
+}
+
+.chat-dropdown-item {
+  background: transparent;
+  border: none;
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 0.80rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+}
+
+.chat-dropdown-item.text-danger {
+  color: var(--accent-red);
+}
+
+.chat-dropdown-item.text-danger:hover {
+  background: rgba(239, 71, 111, 0.15);
+}
+
