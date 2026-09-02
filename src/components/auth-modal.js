@@ -18,45 +18,71 @@ export class AuthModal {
     }
   }
 
+  getInvitePinFromUrl() {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const pinParam = urlParams.get('pin') || urlParams.get('join') || urlParams.get('space');
+      if (pinParam) return pinParam.trim().toUpperCase();
+
+      // Check hash (e.g. #pin=1234 or #1234)
+      const hash = window.location.hash.replace('#', '');
+      if (hash.startsWith('pin=')) {
+        return hash.replace('pin=', '').trim().toUpperCase();
+      } else if (hash.length >= 3 && hash.length <= 10) {
+        return hash.trim().toUpperCase();
+      }
+    } catch (e) {}
+    return '';
+  }
+
   render() {
     if (!this.container) return;
 
+    const invitePin = this.getInvitePinFromUrl();
+
     this.container.innerHTML = `
       <div class="modal-backdrop">
-        <div class="modal-dialog-card glass-card">
+        <div class="modal-dialog-card glass-card" style="max-width: 380px;">
           <!-- Logo & Title -->
           <div style="text-align: center;">
-            <div style="display: inline-flex; align-items: center; justify-content: center; width: 54px; height: 54px; border-radius: 50%; background: radial-gradient(circle, #ff3366 0%, #8a2be2 100%); margin-bottom: 8px; box-shadow: 0 0 20px rgba(255, 51, 102, 0.5);">
+            <div style="display: inline-flex; align-items: center; justify-content: center; width: 56px; height: 56px; border-radius: 50%; background: radial-gradient(circle, #ff3366 0%, #8a2be2 100%); margin-bottom: 8px; box-shadow: 0 0 24px rgba(255, 51, 102, 0.6);">
               <i data-lucide="heart" style="color: #fff; width: 28px; height: 28px;"></i>
             </div>
-            <h2 style="font-family: var(--font-display); font-size: 1.55rem; color: #fff; font-weight: 700; letter-spacing: 0.5px;">Vatsala</h2>
+            <h2 style="font-family: var(--font-display); font-size: 1.6rem; color: #fff; font-weight: 700;">Vatsala</h2>
             <p style="color: var(--text-secondary); font-size: 0.82rem; margin-top: 2px;">
-              Permanent Encrypted Space for Couples
+              Private 3D Encrypted Couple Space
             </p>
           </div>
 
-          <!-- Ultra-Simple 2-Field PIN Login Form -->
+          ${invitePin ? `
+            <div style="background: rgba(0, 245, 212, 0.12); border: 1px solid var(--accent-cyan); padding: 8px 12px; border-radius: var(--radius-md); font-size: 0.78rem; color: var(--accent-cyan); display: flex; align-items: center; gap: 8px; margin-top: 6px;">
+              <i data-lucide="link-2" style="width: 16px; height: 16px; flex-shrink: 0;"></i>
+              <span>Partner Invite Link Detected! PIN <strong>${invitePin}</strong> auto-applied.</span>
+            </div>
+          ` : ''}
+
+          <!-- Ultra-Simple 2-Field Login Form -->
           <form id="auth-form" style="display: flex; flex-direction: column; gap: 14px; margin-top: 8px;">
             <!-- Field 1: Name -->
             <div>
-              <label style="display: block; font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px; text-transform: uppercase;">
-                1. Your Name / Nickname
+              <label style="display: block; font-size: 0.76rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px; text-transform: uppercase;">
+                1. Your Name
               </label>
-              <input type="text" id="input-username" required placeholder="e.g. Rahul or Priya" class="chat-input-field" style="width: 100%; border-radius: var(--radius-md); font-size: 0.95rem;" />
+              <input type="text" id="input-username" required placeholder="e.g. Rahul or Priya" class="chat-input-field" style="width: 100%; border-radius: var(--radius-md); font-size: 0.95rem;" autofocus />
             </div>
 
             <!-- Field 2: Permanent Couple Secret PIN -->
             <div>
-              <label style="display: flex; justify-content: space-between; font-size: 0.78rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px; text-transform: uppercase;">
-                <span>2. Permanent Couple PIN</span>
-                <span style="color: var(--accent-cyan); font-size: 0.72rem;">Shared with Partner</span>
+              <label style="display: flex; justify-content: space-between; font-size: 0.76rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 5px; text-transform: uppercase;">
+                <span>2. Secret Couple PIN</span>
+                <span style="color: var(--accent-cyan); font-size: 0.72rem;">Any 4-digit code</span>
               </label>
-              <input type="text" id="input-couple-pin" required placeholder="e.g. 7890 or LOVE99" class="chat-input-field" style="width: 100%; border-radius: var(--radius-md); font-family: var(--font-mono); color: var(--accent-cyan); font-size: 1.1rem; font-weight: 700; text-align: center; letter-spacing: 2px;" />
+              <input type="text" id="input-couple-pin" required value="${invitePin || '1234'}" placeholder="e.g. 1234 or 7788" class="chat-input-field" style="width: 100%; border-radius: var(--radius-md); font-family: var(--font-mono); color: var(--accent-cyan); font-size: 1.15rem; font-weight: 700; text-align: center; letter-spacing: 2px;" />
             </div>
 
-            <!-- Info Pill -->
-            <div style="background: rgba(0, 245, 212, 0.06); border: 1px dashed rgba(0, 245, 212, 0.3); padding: 8px 12px; border-radius: var(--radius-sm); font-size: 0.74rem; color: var(--text-secondary); line-height: 1.4;">
-              ✨ Dono partners bas same <strong>Permanent PIN</strong> daal kar enter karenge to apne aap aapas me auto-connect aur add ho jayenge!
+            <!-- Easy Tip -->
+            <div style="background: rgba(255, 255, 255, 0.05); border: 1px dashed rgba(255, 255, 255, 0.15); padding: 8px 12px; border-radius: var(--radius-sm); font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
+              💡 <strong>Simple Rule:</strong> Dono phones me same 4-digit PIN daalenge to bina kisi request ke aapas me turant jud jayenge!
             </div>
 
             <button type="submit" id="btn-submit-auth" class="btn btn-primary" style="width: 100%; padding: 12px; margin-top: 4px; border-radius: var(--radius-md); font-size: 0.95rem;">
