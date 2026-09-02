@@ -23,6 +23,17 @@ export class HomeView {
     const pin = this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '');
     notificationEngine.subscribeToPush(pin);
 
+    // Auto-ensure default Partner card exists for current PIN
+    if (this.friends.length === 0) {
+      this.friends = ephemeralStorage.saveFriend({
+        userName: 'My Partner',
+        userCode: `PIN-${pin}`,
+        pin: pin,
+        isOnline: false,
+        lastMessage: 'Tap to start encrypted chat & video calls ❤️'
+      });
+    }
+
     this.render();
   }
 
@@ -58,7 +69,8 @@ export class HomeView {
     const filteredFriends = this.friends.filter(f => 
       !this.searchQuery || 
       (f.userName && f.userName.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
-      (f.userCode && f.userCode.toLowerCase().includes(this.searchQuery.toLowerCase()))
+      (f.userCode && f.userCode.toLowerCase().includes(this.searchQuery.toLowerCase())) ||
+      (f.pin && f.pin.toLowerCase().includes(this.searchQuery.toLowerCase()))
     );
 
     this.container.innerHTML = `
@@ -106,7 +118,7 @@ export class HomeView {
         <div class="hub-search-wrap">
           <div class="hub-search-box glass-card">
             <i data-lucide="search" style="width: 15px; height: 15px; color: var(--text-muted);"></i>
-            <input type="text" id="input-search-friends" placeholder="Search friends by name or PIN..." value="${this.searchQuery}" class="hub-search-input" />
+            <input type="text" id="input-search-friends" placeholder="Search partner by name or PIN..." value="${this.searchQuery}" class="hub-search-input" />
           </div>
         </div>
 
@@ -146,7 +158,7 @@ export class HomeView {
           <!-- Friends List Header -->
           <div class="hub-section-title">
             <i data-lucide="users" style="width: 14px; height: 14px; color: var(--accent-rose);"></i>
-            <span>All Friends & Connected Partners (${this.friends.length})</span>
+            <span>Connected Partners & Friends (${this.friends.length})</span>
           </div>
 
           <!-- Friends / Chats Cards List -->
@@ -154,9 +166,9 @@ export class HomeView {
             ${filteredFriends.length === 0 ? `
               <div class="hub-empty-state glass-card">
                 <div style="font-size: 1.8rem; margin-bottom: 6px;">💑</div>
-                <div style="font-weight: 700; font-size: 0.92rem; color: #fff;">No Friends Added Yet</div>
+                <div style="font-weight: 700; font-size: 0.92rem; color: #fff;">No Partner Found</div>
                 <p style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
-                  Upar <strong>"+ Add Friend"</strong> par tap karein aur apne partner ka Name & PIN daal kar request bhejein!
+                  Upar <strong>"+ Add Friend"</strong> par tap karein aur apne partner ka Name & PIN daal kar add karein!
                 </p>
               </div>
             ` : `
@@ -187,7 +199,7 @@ export class HomeView {
                     </div>
                   </div>
 
-                  <!-- Action Buttons on each Card (No WhatsApp summon button) -->
+                  <!-- Action Buttons on each Card -->
                   <div class="friend-actions-dock">
                     <button class="btn-card-dock btn-dock-chat" data-code="${friend.userCode || friend.pin}" title="Open Chat">
                       <i data-lucide="message-circle"></i>
@@ -318,7 +330,7 @@ export class HomeView {
       });
     });
 
-    // Card Actions: Wakeup Push Ring / Bulana
+    // Card Actions: Wakeup Push Ring
     document.querySelectorAll('.btn-dock-ping').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -375,7 +387,7 @@ export class HomeView {
       <div class="modal-backdrop" id="add-friend-backdrop">
         <div class="modal-dialog-card glass-card" style="max-width: 360px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-family: var(--font-display); font-size: 1.15rem; color: #fff;">Add Friend / Send Req</h3>
+            <h3 style="font-family: var(--font-display); font-size: 1.15rem; color: #fff;">+ Add Partner / Friend</h3>
             <button id="btn-close-add-friend" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;">
               <i data-lucide="x"></i>
             </button>
@@ -397,11 +409,11 @@ export class HomeView {
             </div>
 
             <div style="background: rgba(0, 245, 212, 0.08); border: 1px dashed rgba(0, 245, 212, 0.3); padding: 8px 10px; border-radius: var(--radius-sm); font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
-              ✨ Request bhejte hi partner ke phone par Push Alert chala jayega aur wo aapse connect ho jayenge!
+              ✨ Add karte hi partner aapki homepage list me jud jayega aur unhe instant connect alert chala jayega!
             </div>
 
             <button type="submit" class="btn btn-primary" style="width: 100%; padding: 10px; border-radius: var(--radius-md);">
-              <i data-lucide="send"></i> Send Join Request
+              <i data-lucide="user-plus"></i> Add Partner Instantly
             </button>
           </form>
         </div>
@@ -421,12 +433,13 @@ export class HomeView {
 
       if (!friendName || !friendPin) return;
 
-      ephemeralStorage.saveFriend({
+      // Save friend immediately so it appears on home view right away
+      this.friends = ephemeralStorage.saveFriend({
         userName: friendName,
         userCode: `PIN-${friendPin}`,
         pin: friendPin,
         isOnline: false,
-        lastMessage: 'Join request sent...'
+        lastMessage: 'Added as Partner ❤️'
       });
 
       if (this.socket) {
@@ -437,9 +450,9 @@ export class HomeView {
         });
       }
 
-      notificationEngine.showToast('Request Sent', `${friendName} (PIN: ${friendPin}) ko Push Join Request bhej di gayi!`, 'send');
+      confetti({ particleCount: 60, spread: 60 });
+      notificationEngine.showToast('Partner Added', `${friendName} (PIN: ${friendPin}) aapki friends list me add ho gaye!`, 'user-check');
       modalContainer.innerHTML = '';
-      this.friends = ephemeralStorage.getFriendsList();
       this.render();
     });
   }
