@@ -23,14 +23,14 @@ export class HomeView {
     const pin = this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '');
     notificationEngine.subscribeToPush(pin);
 
-    // Auto-ensure default Partner card exists for current PIN
+    // Auto-create default paired partner card for the current PIN space
     if (this.friends.length === 0) {
       this.friends = ephemeralStorage.saveFriend({
-        userName: 'My Partner',
+        userName: 'Partner',
         userCode: `PIN-${pin}`,
         pin: pin,
         isOnline: false,
-        lastMessage: 'Tap to start encrypted chat & video calls ❤️'
+        lastMessage: 'Tap to start encrypted chat & calls ❤️'
       });
     }
 
@@ -60,10 +60,17 @@ export class HomeView {
     this.render();
   }
 
+  getInviteLink() {
+    const pin = this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '');
+    const origin = window.location.origin;
+    return `${origin}/?pin=${pin}`;
+  }
+
   render() {
     if (!this.container) return;
 
     const pin = this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '');
+    const inviteLink = this.getInviteLink();
     const isNotifGranted = 'Notification' in window && Notification.permission === 'granted';
 
     const filteredFriends = this.friends.filter(f => 
@@ -75,10 +82,9 @@ export class HomeView {
 
     this.container.innerHTML = `
       <div class="friends-hub-home">
-        <!-- Top Profile & Actions Header (WhatsApp Style) -->
+        <!-- Top Profile & Actions Header -->
         <header class="hub-header glass-card">
-          <!-- Profile Pill (Tap to open Profile Editor) -->
-          <div class="hub-user-pill" id="btn-open-my-profile" title="Edit Profile (Photo, Name, Bio)">
+          <div class="hub-user-pill" id="btn-open-my-profile" title="Edit Profile">
             <div class="hub-avatar-orb">
               ${this.myProfile.avatarUrl ? `
                 <img src="${this.myProfile.avatarUrl}" alt="Avatar" class="hub-avatar-img" />
@@ -88,18 +94,13 @@ export class HomeView {
             </div>
             <div class="hub-user-meta">
               <span class="hub-user-name">${this.myProfile.name || this.session.userName}</span>
-              <span class="hub-user-bio-preview">${this.myProfile.bio || 'Tap to set photo & bio...'}</span>
+              <span class="hub-user-bio-preview">PIN: <strong>${pin}</strong></span>
             </div>
           </div>
 
           <div class="hub-header-actions">
-            <!-- Copy PIN Badge -->
-            <span class="hub-pin-badge" id="btn-copy-pin" title="Tap to copy your PIN">
-              PIN: <strong>${pin}</strong> <i data-lucide="copy" style="width: 10px; height: 10px;"></i>
-            </span>
-
             ${!isNotifGranted ? `
-              <button id="btn-enable-notif" class="btn-hub-icon notif-alert" title="Turn ON Background Push Notifications">
+              <button id="btn-enable-notif" class="btn-hub-icon notif-alert" title="Turn ON Background Notifications">
                 <i data-lucide="bell-ring"></i>
               </button>
             ` : ''}
@@ -107,24 +108,42 @@ export class HomeView {
             <button id="btn-profile-gear" class="btn-hub-icon" title="Edit Profile">
               <i data-lucide="user"></i>
             </button>
-
-            <button id="btn-open-add-friend" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.78rem; border-radius: var(--radius-full);">
-              <i data-lucide="user-plus"></i> + Add Friend
-            </button>
           </div>
         </header>
 
-        <!-- Search Friends Bar -->
-        <div class="hub-search-wrap">
-          <div class="hub-search-box glass-card">
-            <i data-lucide="search" style="width: 15px; height: 15px; color: var(--text-muted);"></i>
-            <input type="text" id="input-search-friends" placeholder="Search partner by name or PIN..." value="${this.searchQuery}" class="hub-search-input" />
+        <!-- 1-TAP INSTANT CONNECT BANNER (Simplest Way to Connect Partner) -->
+        <div style="padding: 10px 10px 0 10px;">
+          <div class="glass-card" style="padding: 12px; border-radius: var(--radius-md); background: linear-gradient(135deg, rgba(255, 51, 102, 0.15), rgba(138, 43, 226, 0.15)); border: 1px solid rgba(255, 51, 102, 0.35);">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+              <div>
+                <div style="font-weight: 700; font-size: 0.88rem; color: #fff; display: flex; align-items: center; gap: 6px;">
+                  <span>🔗 Connect Partner (1-Tap Link)</span>
+                </div>
+                <div style="font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px;">
+                  Ye link partner ko bhejein, wo 1 click me jud jayenge!
+                </div>
+              </div>
+              <button id="btn-share-invite-link" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.78rem; border-radius: var(--radius-full); white-space: nowrap;">
+                <i data-lucide="share-2"></i> Share Link
+              </button>
+            </div>
           </div>
         </div>
 
         <!-- Scrollable Body -->
-        <div class="hub-body-scroll">
-          <!-- Pending Incoming Requests Section -->
+        <div class="hub-body-scroll" style="padding-top: 10px;">
+          <!-- Quick Inline Add Partner Box -->
+          <div style="margin-bottom: 12px;">
+            <form id="form-quick-add-partner" class="glass-card" style="padding: 10px; border-radius: var(--radius-md); display: flex; gap: 6px; align-items: center;">
+              <input type="text" id="input-quick-partner-name" placeholder="Partner Name (e.g. Priya)" required class="chat-input-field" style="font-size: 0.82rem; padding: 6px 10px;" />
+              <input type="text" id="input-quick-partner-pin" placeholder="PIN (e.g. ${pin})" value="${pin}" required class="chat-input-field" style="font-size: 0.82rem; width: 90px; text-align: center; font-family: var(--font-mono); color: var(--accent-cyan);" />
+              <button type="submit" class="btn btn-primary" style="padding: 6px 12px; font-size: 0.78rem; white-space: nowrap; border-radius: var(--radius-md);">
+                <i data-lucide="user-plus"></i> Add
+              </button>
+            </form>
+          </div>
+
+          <!-- Pending Requests Section -->
           ${this.pendingRequests.length > 0 ? `
             <div class="hub-section-title" style="color: var(--accent-amber);">
               <i data-lucide="mail" style="width: 14px; height: 14px;"></i>
@@ -155,80 +174,62 @@ export class HomeView {
             </div>
           ` : ''}
 
-          <!-- Friends List Header -->
+          <!-- Connected Partners List -->
           <div class="hub-section-title">
-            <i data-lucide="users" style="width: 14px; height: 14px; color: var(--accent-rose);"></i>
-            <span>Connected Partners & Friends (${this.friends.length})</span>
+            <i data-lucide="heart" style="width: 14px; height: 14px; color: var(--accent-rose);"></i>
+            <span>Your Connected Space (${this.friends.length})</span>
           </div>
 
-          <!-- Friends / Chats Cards List -->
           <div class="hub-friends-list">
-            ${filteredFriends.length === 0 ? `
-              <div class="hub-empty-state glass-card">
-                <div style="font-size: 1.8rem; margin-bottom: 6px;">💑</div>
-                <div style="font-weight: 700; font-size: 0.92rem; color: #fff;">No Partner Found</div>
-                <p style="font-size: 0.76rem; color: var(--text-secondary); margin-top: 4px; line-height: 1.4;">
-                  Upar <strong>"+ Add Friend"</strong> par tap karein aur apne partner ka Name & PIN daal kar add karein!
-                </p>
-              </div>
-            ` : `
-              ${filteredFriends.map(friend => `
-                <div class="hub-friend-card glass-card" data-code="${friend.userCode || friend.pin}">
-                  <!-- Friend Avatar & Online Dot -->
-                  <div class="friend-avatar-wrap" data-code="${friend.userCode || friend.pin}">
-                    <div class="friend-avatar-orb">
-                      ${friend.avatarUrl ? `
-                        <img src="${friend.avatarUrl}" alt="Avatar" class="hub-avatar-img" />
-                      ` : `
-                        ${(friend.userName || 'P').charAt(0).toUpperCase()}
-                      `}
-                    </div>
-                    <span class="friend-presence-dot ${friend.isOnline ? 'online' : 'offline'}"></span>
+            ${filteredFriends.map(friend => `
+              <div class="hub-friend-card glass-card" data-code="${friend.userCode || friend.pin}">
+                <!-- Friend Avatar & Online Dot -->
+                <div class="friend-avatar-wrap" data-code="${friend.userCode || friend.pin}">
+                  <div class="friend-avatar-orb">
+                    ${friend.avatarUrl ? `
+                      <img src="${friend.avatarUrl}" alt="Avatar" class="hub-avatar-img" />
+                    ` : `
+                      ${(friend.userName || 'P').charAt(0).toUpperCase()}
+                    `}
                   </div>
+                  <span class="friend-presence-dot ${friend.isOnline ? 'online' : 'offline'}"></span>
+                </div>
 
-                  <!-- Friend Details -->
-                  <div class="friend-info" data-code="${friend.userCode || friend.pin}">
-                    <div class="friend-info-top">
-                      <span class="friend-name">${friend.userName || 'Partner'}</span>
-                      <span class="friend-status-badge ${friend.isOnline ? 'online' : 'offline'}">
-                        ${friend.isOnline ? '🟢 Online' : '🌙 Standby'}
-                      </span>
-                    </div>
-                    <div class="friend-preview-text">
-                      ${friend.bio || friend.lastMessage || 'Tap to open encrypted chat & calls...'}
-                    </div>
+                <!-- Friend Details -->
+                <div class="friend-info" data-code="${friend.userCode || friend.pin}">
+                  <div class="friend-info-top">
+                    <span class="friend-name">${friend.userName || 'Partner'}</span>
+                    <span class="friend-status-badge ${friend.isOnline ? 'online' : 'offline'}">
+                      ${friend.isOnline ? '🟢 Online' : '🌙 Standby'}
+                    </span>
                   </div>
-
-                  <!-- Action Buttons on each Card -->
-                  <div class="friend-actions-dock">
-                    <button class="btn-card-dock btn-dock-chat" data-code="${friend.userCode || friend.pin}" title="Open Chat">
-                      <i data-lucide="message-circle"></i>
-                    </button>
-                    
-                    <button class="btn-card-dock btn-dock-ping" data-pin="${friend.pin || friend.userCode?.replace('PIN-', '')}" data-name="${friend.userName}" title="Wakeup Push Ring">
-                      <i data-lucide="bell"></i>
-                    </button>
-
-                    <button class="btn-card-dock btn-dock-voice" data-code="${friend.userCode || friend.pin}" title="Voice Call">
-                      <i data-lucide="phone"></i>
-                    </button>
-
-                    <button class="btn-card-dock btn-dock-video" data-code="${friend.userCode || friend.pin}" title="Video Call">
-                      <i data-lucide="video"></i>
-                    </button>
-
-                    <button class="btn-card-dock btn-dock-delete" data-code="${friend.userCode || friend.pin}" title="Remove Friend">
-                      <i data-lucide="trash-2"></i>
-                    </button>
+                  <div class="friend-preview-text">
+                    ${friend.bio || friend.lastMessage || 'Tap to open encrypted chat & calls...'}
                   </div>
                 </div>
-              `).join('')}
-            `}
+
+                <!-- Action Buttons on each Card -->
+                <div class="friend-actions-dock">
+                  <button class="btn-card-dock btn-dock-chat" data-code="${friend.userCode || friend.pin}" title="Open Chat">
+                    <i data-lucide="message-circle"></i>
+                  </button>
+                  
+                  <button class="btn-card-dock btn-dock-ping" data-pin="${friend.pin || friend.userCode?.replace('PIN-', '')}" data-name="${friend.userName}" title="Wakeup Push Ring">
+                    <i data-lucide="bell"></i>
+                  </button>
+
+                  <button class="btn-card-dock btn-dock-voice" data-code="${friend.userCode || friend.pin}" title="Voice Call">
+                    <i data-lucide="phone"></i>
+                  </button>
+
+                  <button class="btn-card-dock btn-dock-video" data-code="${friend.userCode || friend.pin}" title="Video Call">
+                    <i data-lucide="video"></i>
+                  </button>
+                </div>
+              </div>
+            `).join('')}
           </div>
         </div>
-
-        <!-- Add Friend / Send Request Modal -->
-        <div id="add-friend-modal-container"></div>
       </div>
     `;
 
@@ -237,6 +238,68 @@ export class HomeView {
   }
 
   attachEvents() {
+    // 1-Tap Share Invite Link
+    const btnShare = document.getElementById('btn-share-invite-link');
+    if (btnShare) {
+      btnShare.addEventListener('click', async () => {
+        const inviteLink = this.getInviteLink();
+        const shareText = `Hey! Join our private encrypted space on Vatsala:\n${inviteLink}`;
+
+        if (navigator.share) {
+          try {
+            await navigator.share({
+              title: 'Vatsala Private Couple Space',
+              text: shareText,
+              url: inviteLink
+            });
+            return;
+          } catch (e) {}
+        }
+
+        // Fallback to Clipboard
+        navigator.clipboard.writeText(inviteLink);
+        confetti({ particleCount: 50, spread: 60 });
+        notificationEngine.showToast('Link Copied!', '1-Tap Connect Link clipboard par copy ho gaya! Partner ko WhatsApp/SMS par bhej dijiye.', 'check');
+      });
+    }
+
+    // Quick Add Partner Form
+    const formQuickAdd = document.getElementById('form-quick-add-partner');
+    if (formQuickAdd) {
+      formQuickAdd.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const nameInput = document.getElementById('input-quick-partner-name');
+        const pinInput = document.getElementById('input-quick-partner-pin');
+
+        const name = nameInput ? nameInput.value.trim() : '';
+        const friendPin = pinInput ? pinInput.value.trim().toUpperCase() : '';
+
+        if (!name || !friendPin) return;
+
+        this.friends = ephemeralStorage.saveFriend({
+          userName: name,
+          userCode: `PIN-${friendPin}`,
+          pin: friendPin,
+          isOnline: false,
+          lastMessage: 'Tap to start chat ❤️'
+        });
+
+        if (this.socket) {
+          this.socket.emit('send-friend-request', {
+            toPin: friendPin,
+            fromUserName: this.myProfile.name || this.session.userName,
+            fromPin: this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '')
+          });
+        }
+
+        confetti({ particleCount: 60, spread: 60 });
+        notificationEngine.showToast('Partner Added!', `${name} connect ho gaye! Chat open karein.`, 'user-check');
+
+        if (nameInput) nameInput.value = '';
+        this.render();
+      });
+    }
+
     // Open Profile Modal
     const openProfile = () => {
       const modal = new ProfileModal(this.session, (updatedProfile) => {
@@ -251,32 +314,11 @@ export class HomeView {
     document.getElementById('btn-open-my-profile')?.addEventListener('click', openProfile);
     document.getElementById('btn-profile-gear')?.addEventListener('click', openProfile);
 
-    // Copy PIN
-    document.getElementById('btn-copy-pin')?.addEventListener('click', () => {
-      const pin = this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '');
-      navigator.clipboard.writeText(pin);
-      notificationEngine.showToast('PIN Copied', `PIN ${pin} copied! Share with your partner.`, 'check');
-    });
-
     // Permission Alert & Auto-Subscribe
     document.getElementById('btn-enable-notif')?.addEventListener('click', async () => {
       const pin = this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '');
       const granted = await notificationEngine.requestPermission(pin);
       if (granted) this.render();
-    });
-
-    // Search Input
-    const searchInput = document.getElementById('input-search-friends');
-    if (searchInput) {
-      searchInput.addEventListener('input', (e) => {
-        this.searchQuery = e.target.value;
-        this.render();
-      });
-    }
-
-    // Open Add Friend Modal
-    document.getElementById('btn-open-add-friend')?.addEventListener('click', () => {
-      this.showAddFriendModal();
     });
 
     // Accept Request
@@ -363,97 +405,6 @@ export class HomeView {
         e.stopPropagation();
         if (this.onStartCall) this.onStartCall(true);
       });
-    });
-
-    // Card Actions: Delete Friend
-    document.querySelectorAll('.btn-dock-delete').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const code = btn.getAttribute('data-code');
-        if (confirm('Kya aap is partner ko remove karna chahte hain?')) {
-          ephemeralStorage.removeFriend(code);
-          this.friends = ephemeralStorage.getFriendsList();
-          this.render();
-        }
-      });
-    });
-  }
-
-  showAddFriendModal() {
-    const modalContainer = document.getElementById('add-friend-modal-container');
-    if (!modalContainer) return;
-
-    modalContainer.innerHTML = `
-      <div class="modal-backdrop" id="add-friend-backdrop">
-        <div class="modal-dialog-card glass-card" style="max-width: 360px;">
-          <div style="display: flex; justify-content: space-between; align-items: center;">
-            <h3 style="font-family: var(--font-display); font-size: 1.15rem; color: #fff;">+ Add Partner / Friend</h3>
-            <button id="btn-close-add-friend" class="btn btn-secondary" style="padding: 2px 8px; font-size: 0.75rem;">
-              <i data-lucide="x"></i>
-            </button>
-          </div>
-
-          <form id="form-send-friend-request" style="display: flex; flex-direction: column; gap: 12px; margin-top: 6px;">
-            <div>
-              <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase;">
-                Partner's Name
-              </label>
-              <input type="text" id="input-friend-name" required placeholder="e.g. Priya" class="chat-input-field" style="width: 100%; border-radius: var(--radius-md);" />
-            </div>
-
-            <div>
-              <label style="display: block; font-size: 0.74rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 4px; text-transform: uppercase;">
-                Partner's Secret PIN
-              </label>
-              <input type="text" id="input-friend-pin" required placeholder="e.g. 7890" class="chat-input-field" style="width: 100%; border-radius: var(--radius-md); font-family: var(--font-mono); color: var(--accent-cyan); text-align: center; font-size: 1.1rem; font-weight: 700;" />
-            </div>
-
-            <div style="background: rgba(0, 245, 212, 0.08); border: 1px dashed rgba(0, 245, 212, 0.3); padding: 8px 10px; border-radius: var(--radius-sm); font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
-              ✨ Add karte hi partner aapki homepage list me jud jayega aur unhe instant connect alert chala jayega!
-            </div>
-
-            <button type="submit" class="btn btn-primary" style="width: 100%; padding: 10px; border-radius: var(--radius-md);">
-              <i data-lucide="user-plus"></i> Add Partner Instantly
-            </button>
-          </form>
-        </div>
-      </div>
-    `;
-
-    renderIcons();
-
-    document.getElementById('btn-close-add-friend')?.addEventListener('click', () => {
-      modalContainer.innerHTML = '';
-    });
-
-    document.getElementById('form-send-friend-request')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const friendName = document.getElementById('input-friend-name').value.trim();
-      const friendPin = document.getElementById('input-friend-pin').value.trim().toUpperCase();
-
-      if (!friendName || !friendPin) return;
-
-      // Save friend immediately so it appears on home view right away
-      this.friends = ephemeralStorage.saveFriend({
-        userName: friendName,
-        userCode: `PIN-${friendPin}`,
-        pin: friendPin,
-        isOnline: false,
-        lastMessage: 'Added as Partner ❤️'
-      });
-
-      if (this.socket) {
-        this.socket.emit('send-friend-request', {
-          toPin: friendPin,
-          fromUserName: this.myProfile.name || this.session.userName,
-          fromPin: this.myProfile.pin || this.session.pin || this.session.spaceId.replace('PIN-', '')
-        });
-      }
-
-      confetti({ particleCount: 60, spread: 60 });
-      notificationEngine.showToast('Partner Added', `${friendName} (PIN: ${friendPin}) aapki friends list me add ho gaye!`, 'user-check');
-      modalContainer.innerHTML = '';
-      this.render();
     });
   }
 }
